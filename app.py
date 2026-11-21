@@ -362,7 +362,7 @@ with tab6:
     portfolio["含み損益(円)"] = portfolio["評価額(円)"] - portfolio["投資元本(円)"]
     portfolio["損益率(%)"] = np.where(portfolio["投資元本(円)"]>0, portfolio["含み損益(円)"] / portfolio["投資元本(円)"] * 100, np.nan)
     pcols=["コード","銘柄名","口数","平均取得価格(円)","現在値","投資元本(円)","評価額(円)","含み損益(円)","損益率(%)"]
-    st.dataframe(whole_number_prices(portfolio[pcols], PRICE_COLUMNS).style.format({"損益率(%)":"{:.2f}%"}, na_rep="—"), use_container_width=True, hide_index=True)
+    st.dataframe(whole_number_prices(portfolio[pcols], PRICE_COLUMNS + ["平均取得価格(円)"]).style.format({"損益率(%)":"{:.2f}%"}, na_rep="—"), use_container_width=True, hide_index=True)
     p1,p2,p3=st.columns(3)
     p1.metric("投資元本", f"{portfolio['投資元本(円)'].sum():,.0f}円")
     p2.metric("評価額", f"{portfolio['評価額(円)'].sum():,.0f}円")
@@ -380,7 +380,7 @@ with tab7:
         rolling_low=frame["Low"].astype(float).rolling(252, min_periods=60).min()
         rolling_mid=((rolling_avg+rolling_low)/2/100).round()*100
         future=close.shift(-forward_days)
-        signal=(close<rolling_mid) & future.notna()
+        signal=(close<rolling_mid).shift(1).fillna(False) & future.notna()
         for dt in close.index[signal.fillna(False)]:
             base=float(close.loc[dt]); later=float(future.loc[dt])
             signals.append({"コード":str(ticker.replace(".T","")),"銘柄名":master.loc[master["ticker"]==ticker,"name"].iloc[0],"購入日":dt.strftime("%Y-%m-%d"),"購入価格":base,"検証後価格":later,"騰落率(%)":(later/base-1)*100})
