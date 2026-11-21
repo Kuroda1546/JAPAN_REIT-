@@ -96,7 +96,7 @@ def add_market_metrics(summary_frame, price_map):
 
 def percentile_score(series, higher_is_better=True):
     values = pd.to_numeric(series, errors="coerce")
-    return values.rank(pct=True, ascending=not higher_is_better) * 100
+    return values.rank(pct=True, ascending=higher_is_better) * 100
 
 
 
@@ -325,7 +325,7 @@ with tab4:
                 st.markdown("**NAV倍率ランキング（低い順）**")
                 nav_rank = fundamental_view.dropna(subset=["NAV倍率"]).sort_values("NAV倍率")
                 nav_cols = ["コード","銘柄名","現在値","nav_per_unit_yen","NAV倍率","ltv_pct"]
-                nav_display = whole_number_prices(nav_rank[nav_cols], PRICE_COLUMNS).rename(columns={"nav_per_unit_yen":"1口当たりNAV(円)","ltv_pct":"LTV(%)"})
+                nav_display = whole_number_prices(nav_rank[nav_cols], PRICE_COLUMNS + ["nav_per_unit_yen"]).rename(columns={"nav_per_unit_yen":"1口当たりNAV(円)","ltv_pct":"LTV(%)"})
                 st.dataframe(nav_display.style.format({"NAV倍率":"{:.2f}倍","LTV(%)":"{:.1f}%"}, na_rep="—"), use_container_width=True, hide_index=True)
                 if nav_rank.empty: st.warning("NAVデータが入力されていません。")
             st.caption("入力値の基準日・予想/実績の別をCSV作成時に必ず確認してください。")
@@ -391,7 +391,7 @@ with tab7:
         b1.metric("検証シグナル数",f"{len(bt):,}")
         b2.metric("プラスリターン率",f"{win:.1f}%")
         b3.metric("平均騰落率",f"{bt['騰落率(%)'].mean():+.2f}%")
-        st.dataframe(bt.sort_values("購入日",ascending=False),use_container_width=True,hide_index=True)
+        bt_display = whole_number_prices(bt, ["購入価格","検証後価格"])\n        st.dataframe(bt_display.sort_values("購入日",ascending=False).style.format({"騰落率(%)":"{:.2f}%"}, na_rep="—"),use_container_width=True,hide_index=True)
         st.download_button("バックテストCSV",bt.to_csv(index=False).encode("utf-8-sig"),"reit_backtest.csv","text/csv")
     else:
         st.warning("バックテスト可能なシグナルがありません。分析期間を長くして価格データを取得してください。")
