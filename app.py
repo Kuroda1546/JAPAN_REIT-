@@ -139,7 +139,7 @@ with tab1:
     st.subheader("銘柄別・期間騰落率")
     chart_data = summary.sort_values("期間騰落率(%)", ascending=False).set_index("銘柄名")[["期間騰落率(%)"]]
     st.bar_chart(chart_data.round(0), use_container_width=True)
-    st.dataframe(summary.drop(columns=["ticker"]).describe(include="all").T.style.format("{:,.0f}"), use_container_width=True)
+    st.dataframe(summary.drop(columns=["ticker"]).describe(include="all").T.style.format(lambda x: f"{x:,.0f}" if isinstance(x, (int, float, np.integer, np.floating)) and pd.notna(x) else x), use_container_width=True)
 
     st.divider()
     st.subheader("平均値・最安値の中間値を下回る銘柄")
@@ -191,7 +191,7 @@ with tab3:
     x4.metric("平均値・最安値の中間値", f"{row['平均値・最安値の中間値']:,.0f}円")
     st.caption(f"最高値日：{row['最高値日']}｜最安値日：{row['最安値日']}")
     st.line_chart(df[["High","Low","Close"]].round(0))
-    st.dataframe(row.drop(labels=["ticker"]).to_frame("値").style.format("{:,.0f}"), use_container_width=True)
+    st.dataframe(row.drop(labels=["ticker"]).to_frame("値").style.format(lambda x: f"{x:,.0f}" if isinstance(x, (int, float, np.integer, np.floating)) and pd.notna(x) else x), use_container_width=True)
 
 with st.expander("取得できなかった銘柄・データの注意", expanded=bool(errors)):
     if errors:
