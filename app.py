@@ -50,11 +50,11 @@ def get_prices(tickers, start, end):
     return result, errors
 
 def whole_number_prices(frame, columns):
-    """表示用データの株価列を四捨五入し、整数として描画する（分析元データは変更しない）。"""
+    """表示用データの株価列を100円単位に四捨五入する（分析元データは変更しない）。"""
     result = frame.copy()
     for column in columns:
         if column in result.columns:
-            result[column] = pd.to_numeric(result[column], errors="coerce").round(0).astype("Int64")
+            result[column] = (pd.to_numeric(result[column], errors="coerce") / 100).round(0).mul(100).astype("Int64")
     return result
 
 PRICE_COLUMNS = ["現在値", "最高値", "平均値", "最安値", "平均値・最安値の中間値", "最安値からの差額(円)", "High", "Low", "Close"]
@@ -150,6 +150,10 @@ with tab1:
     chart_data = summary.sort_values("期間騰落率(%)", ascending=False).set_index("銘柄名")[["期間騰落率(%)"]]
     st.bar_chart(chart_data.round(0), use_container_width=True)
     describe_table = summary.drop(columns=["ticker"]).describe(include="all").T
+    for price_label in PRICE_COLUMNS:
+        if price_label in describe_table.index:
+            numeric_values = pd.to_numeric(describe_table.loc[price_label], errors="coerce")
+            describe_table.loc[price_label] = (numeric_values / 100).round(0) * 100
     st.dataframe(describe_table.style.format(precision=0, thousands=",", na_rep="—"), use_container_width=True)
 
     st.divider()
@@ -203,7 +207,7 @@ with tab3:
     detail = row.drop(labels=["ticker"]).to_frame("値")
     for label in PRICE_COLUMNS:
         if label in detail.index and pd.notna(detail.loc[label, "値"]):
-            detail.loc[label, "値"] = f"{float(detail.loc[label, '値']):,.0f}"
+            detail.loc[label, "値"] = f"{round(float(detail.loc[label, '値']) / 100) * 100:,.0f}"
     st.dataframe(detail.style.format(precision=0, thousands=",", na_rep="—"), use_container_width=True)
 
 with st.expander("取得できなかった銘柄・データの注意", expanded=bool(errors)):
