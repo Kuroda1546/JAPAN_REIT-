@@ -59,6 +59,47 @@ def whole_number_prices(frame, columns):
 
 PRICE_COLUMNS = ["現在値", "最高値", "平均値", "最安値", "平均値・最安値の中間値", "最安値からの差額(円)", "High", "Low", "Close"]
 
+def safe_csv_upload(uploaded):
+    if uploaded is None:
+        return None
+    raw = uploaded.getvalue()
+    for enc in ("utf-8-sig", "cp932", "utf-8"):
+        try:
+            return pd.read_csv(io.BytesIO(raw), dtype={"code": str, "コード": str}, encoding=enc)
+        except Exception:
+            pass
+    return None
+
+def add_market_metrics(summary_frame, price_map):
+    metrics = []
+    for ticker, frame in price_map.items():
+        close = frame["Close"].astype(float).dropna()
+        daily = close.pct_change().dropna()
+        current = float(close.iloc[-1])
+        def period_return(n):
+            return (current / float(close.iloc[-n-1]) - 1) * 100 if len(close) > n else np.nan
+        dd = close / close.cummax() - 1
+        downside = daily[daily < 0]
+        low = float(frame["Low"].min())
+        metrics.append({
+            "ticker": ticker,
+            "1ヶ月騰落率(%)": period_return(21),
+            "3ヶ月騰落率(%)": period_return(63),
+            "6ヶ月騰落率(%)": period_return(126),
+            "12ヶ月騰落率(%)": period_return(252),
+            "最大ドローダウン(%)": float(dd.min() * 100) if len(dd) else np.nan,
+            "最安値からの回復率(%)": (current / low - 1) * 100 if low else np.nan,
+            "下方ボラティリティ(%)": float(downside.std() * np.sqrt(252) * 100) if len(downside) > 1 else np.nan,
+            "日次VaR 95%(年率換算・%)": float(-daily.quantile(0.05) * np.sqrt(252) * 100) if len(daily) else np.nan
+        })
+    return summary_frame.merge(pd.DataFrame(metrics), on="ticker", how="left")
+
+def percentile_score(series, higher_is_better=True):
+    values = pd.to_numeric(series, errors="coerce")
+    return values.rank(pct=True, ascending=not higher_is_better) * 100
+
+
+
 def analyze(prices, master):
     names = master.set_index("ticker")["name"].to_dict()
     codes = master.set_index("ticker")["code"].to_dict()
@@ -132,6 +173,7 @@ if not prices:
 # 選択条件を変えた場合は、現在保持しているデータの範囲内で表示する
 prices = {k:v for k,v in prices.items() if k in selected}
 summary = analyze(prices, master)
+summary = add_market_metrics(summary, prices)
 if summary.empty:
     st.error("分析可能なデータがありません。期間や銘柄を変更してください。")
     st.stop()
@@ -144,7 +186,7 @@ d.metric("最高値からの下落率中央値", f"{summary['最高値からの�
 with st.expander("価格統計の計算ルール"):
     st.write("最高値＝期間中の日次高値の最大値。平均値＝日次終値の算術平均。最安値＝日次安値の最小値。中間値＝(平均値＋最安値)÷2。分配金を含まない投資口価格ベースです。")
 
-tab1,tab2,tab3 = st.tabs(["市場全体","銘柄ランキング","個別銘柄分析"])
+tab1,tab2,tab3,tab4,tab5,tab6,tab7,tab8 = st.tabs(["市場全体","銘柄ランキング","個別銘柄分析","分配金・NAV","下落・リスク","仮想ポートフォリオ","バックテスト","金利・市況・割安発掘"])
 with tab1:
     st.subheader("銘柄別・期間騰落率")
     chart_data = summary.sort_values("期間騰落率(%)", ascending=False).set_index("銘柄名")[["期間騰落率(%)"]]
@@ -246,6 +288,156 @@ with tab3:
         if label in detail.index and pd.notna(detail.loc[label, "値"]):
             detail.loc[label, "値"] = f"{round(float(detail.loc[label, '値']) / 100) * 100:,.0f}"
     st.dataframe(detail.style.format(precision=0, thousands=",", na_rep="—"), use_container_width=True)
+
+
+with tab4:
+    st.subheader("分配金利回り・NAV倍率ランキング")
+    st.info("分配金・NAV・LTVは株価データからは算出できません。決算資料等で確認した値をCSVで読み込んでください。未入力値は空欄のまま扱います。")
+    template = pd.DataFrame(columns=["code","annual_distribution_yen","nav_per_unit_yen","ltv_pct","property_type"])
+    st.download_button("ファンダメンタル入力CSVテンプレート", template.to_csv(index=False).encode("utf-8-sig"), "reit_fundamentals_template.csv", "text/csv")
+    fund_file = st.file_uploader("J-REITファンダメンタルCSVを読み込む", type=["csv"], key="fundamentals_csv")
+    fundamentals = safe_csv_upload(fund_file)
+    fundamental_view = None
+    if fundamentals is not None and not fundamentals.empty:
+        code_col = "code" if "code" in fundamentals.columns else ("コード" if "コード" in fundamentals.columns else None)
+        if code_col is None:
+            st.error("CSVに code または コード 列が必要です。")
+        else:
+            fundamentals[code_col] = fundamentals[code_col].astype(str).str.replace(r"\.0$", "", regex=True)
+            fundamentals = fundamentals.rename(columns={code_col:"コード"})
+            for col in ["annual_distribution_yen","nav_per_unit_yen","ltv_pct","property_type"]:
+                if col not in fundamentals.columns:
+                    fundamentals[col] = np.nan
+            fundamentals["annual_distribution_yen"] = pd.to_numeric(fundamentals["annual_distribution_yen"], errors="coerce")
+            fundamentals["nav_per_unit_yen"] = pd.to_numeric(fundamentals["nav_per_unit_yen"], errors="coerce")
+            fundamentals["ltv_pct"] = pd.to_numeric(fundamentals["ltv_pct"], errors="coerce")
+            fundamental_view = summary.merge(fundamentals, on="コード", how="left")
+            fundamental_view["予想分配金利回り(%)"] = fundamental_view["annual_distribution_yen"] / fundamental_view["現在値"] * 100
+            fundamental_view["NAV倍率"] = fundamental_view["現在値"] / fundamental_view["nav_per_unit_yen"]
+            y1,y2 = st.columns(2)
+            with y1:
+                st.markdown("**予想分配金利回りランキング**")
+                div_rank = fundamental_view.dropna(subset=["予想分配金利回り(%)"]).sort_values("予想分配金利回り(%)", ascending=False)
+                div_cols = ["コード","銘柄名","現在値","annual_distribution_yen","予想分配金利回り(%)","ltv_pct"]
+                st.dataframe(whole_number_prices(div_rank[div_cols], PRICE_COLUMNS).rename(columns={"annual_distribution_yen":"年間予想分配金(円)","ltv_pct":"LTV(%)"}).style.format(precision=2, thousands=",", na_rep="—"), use_container_width=True, hide_index=True)
+                if div_rank.empty: st.warning("分配金データが入力されていません。")
+            with y2:
+                st.markdown("**NAV倍率ランキング（低い順）**")
+                nav_rank = fundamental_view.dropna(subset=["NAV倍率"]).sort_values("NAV倍率")
+                nav_cols = ["コード","銘柄名","現在値","nav_per_unit_yen","NAV倍率","ltv_pct"]
+                nav_display = whole_number_prices(nav_rank[nav_cols], PRICE_COLUMNS).rename(columns={"nav_per_unit_yen":"1口当たりNAV(円)","ltv_pct":"LTV(%)"})
+                st.dataframe(nav_display.style.format({"NAV倍率":"{:.2f}倍","LTV(%)":"{:.1f}%"}, na_rep="—"), use_container_width=True, hide_index=True)
+                if nav_rank.empty: st.warning("NAVデータが入力されていません。")
+            st.caption("入力値の基準日・予想/実績の別をCSV作成時に必ず確認してください。")
+    else:
+        st.warning("CSV未読み込みです。テンプレートに最新の年間予想分配金、1口当たりNAV、LTVを入力して読み込んでください。")
+
+with tab5:
+    st.subheader("下落率・回復余地ランキング")
+    draw_cols = ["コード","銘柄名","現在値","1ヶ月騰落率(%)","3ヶ月騰落率(%)","6ヶ月騰落率(%)","12ヶ月騰落率(%)","最高値からの下落率(%)","最大ドローダウン(%)","最安値からの回復率(%)"]
+    draw_rank = summary.sort_values("3ヶ月騰落率(%)", ascending=True)
+    st.dataframe(whole_number_prices(draw_rank[draw_cols], PRICE_COLUMNS).style.format({c:"{:.1f}%" for c in draw_cols if "(%)" in c}, na_rep="—"), use_container_width=True, hide_index=True)
+    st.download_button("下落・回復ランキングCSV", draw_rank[draw_cols].to_csv(index=False).encode("utf-8-sig"), "reit_drawdown_recovery.csv", "text/csv")
+    st.divider()
+    st.subheader("リスク分析ランキング")
+    risk_cols = ["コード","銘柄名","年率換算ボラティリティ(%)","下方ボラティリティ(%)","最大ドローダウン(%)","日次VaR 95%(年率換算・%)"]
+    risk_rank = summary.sort_values("年率換算ボラティリティ(%)", ascending=True)
+    st.dataframe(risk_rank[risk_cols].style.format({c:"{:.2f}%" for c in risk_cols if "%" in c}, na_rep="—"), use_container_width=True, hide_index=True)
+    st.caption("VaRは日次リターンの5%分位点を√252倍した参考値です。将来の最大損失を保証するものではありません。")
+
+with tab6:
+    st.subheader("仮想ポートフォリオ")
+    st.caption("仮想保有口数・平均取得価格を入力して試算します。データはブラウザのセッション中のみ保持されます。")
+    portfolio_seed = pd.DataFrame([{"コード":str(r["コード"]),"口数":0,"平均取得価格(円)":0} for _,r in summary.head(5).iterrows()])
+    if "reit_portfolio" not in st.session_state:
+        st.session_state["reit_portfolio"] = portfolio_seed
+    portfolio = st.data_editor(st.session_state["reit_portfolio"], num_rows="dynamic", use_container_width=True, key="reit_portfolio_editor")
+    st.session_state["reit_portfolio"] = portfolio
+    portfolio["コード"] = portfolio["コード"].astype(str)
+    portfolio["口数"] = pd.to_numeric(portfolio["口数"], errors="coerce").fillna(0)
+    portfolio["平均取得価格(円)"] = pd.to_numeric(portfolio["平均取得価格(円)"], errors="coerce").fillna(0)
+    portfolio = portfolio.merge(summary[["コード","銘柄名","現在値"]], on="コード", how="left")
+    portfolio["投資元本(円)"] = portfolio["口数"] * portfolio["平均取得価格(円)"]
+    portfolio["評価額(円)"] = portfolio["口数"] * portfolio["現在値"]
+    portfolio["含み損益(円)"] = portfolio["評価額(円)"] - portfolio["投資元本(円)"]
+    portfolio["損益率(%)"] = np.where(portfolio["投資元本(円)"]>0, portfolio["含み損益(円)"] / portfolio["投資元本(円)"] * 100, np.nan)
+    pcols=["コード","銘柄名","口数","平均取得価格(円)","現在値","投資元本(円)","評価額(円)","含み損益(円)","損益率(%)"]
+    st.dataframe(whole_number_prices(portfolio[pcols], PRICE_COLUMNS).style.format({"損益率(%)":"{:.2f}%"}, na_rep="—"), use_container_width=True, hide_index=True)
+    p1,p2,p3=st.columns(3)
+    p1.metric("投資元本", f"{portfolio['投資元本(円)'].sum():,.0f}円")
+    p2.metric("評価額", f"{portfolio['評価額(円)'].sum():,.0f}円")
+    p3.metric("含み損益", f"{portfolio['含み損益(円)'].sum():+,.0f}円")
+
+with tab7:
+    st.subheader("過去データによるバックテスト")
+    st.caption("過去252営業日の終値平均と安値から中間値を毎日算出し、終値が中間値を下回った日に仮想購入。未来情報を使わないローリング方式です。")
+    horizon = st.selectbox("検証期間", ["1ヶ月後","3ヶ月後","6ヶ月後"], key="backtest_horizon")
+    forward_days = {"1ヶ月後":21,"3ヶ月後":63,"6ヶ月後":126}[horizon]
+    signals=[]
+    for ticker, frame in prices.items():
+        close=frame["Close"].astype(float)
+        rolling_avg=close.rolling(252, min_periods=60).mean()
+        rolling_low=frame["Low"].astype(float).rolling(252, min_periods=60).min()
+        rolling_mid=((rolling_avg+rolling_low)/2/100).round()*100
+        future=close.shift(-forward_days)
+        signal=(close<rolling_mid) & future.notna()
+        for dt in close.index[signal.fillna(False)]:
+            base=float(close.loc[dt]); later=float(future.loc[dt])
+            signals.append({"コード":str(ticker.replace(".T","")),"銘柄名":master.loc[master["ticker"]==ticker,"name"].iloc[0],"購入日":dt.strftime("%Y-%m-%d"),"購入価格":base,"検証後価格":later,"騰落率(%)":(later/base-1)*100})
+    bt=pd.DataFrame(signals)
+    if not bt.empty:
+        win=(bt["騰落率(%)"]>0).mean()*100
+        b1,b2,b3=st.columns(3)
+        b1.metric("検証シグナル数",f"{len(bt):,}")
+        b2.metric("プラスリターン率",f"{win:.1f}%")
+        b3.metric("平均騰落率",f"{bt['騰落率(%)'].mean():+.2f}%")
+        st.dataframe(bt.sort_values("購入日",ascending=False),use_container_width=True,hide_index=True)
+        st.download_button("バックテストCSV",bt.to_csv(index=False).encode("utf-8-sig"),"reit_backtest.csv","text/csv")
+    else:
+        st.warning("バックテスト可能なシグナルがありません。分析期間を長くして価格データを取得してください。")
+    st.warning("単純検証です。売買手数料、分配金、税金、流動性、重複購入、銘柄入替を完全には反映していません。")
+
+with tab8:
+    st.subheader("金利・不動産市況分析")
+    st.info("金利・不動産市況データはCSV読み込み方式です。")
+    macro_template=pd.DataFrame(columns=["date","japan_10y_yield_pct","reit_index","property_price_index"])
+    st.download_button("金利・市況CSVテンプレート",macro_template.to_csv(index=False).encode("utf-8-sig"),"reit_macro_template.csv","text/csv")
+    macro_file=st.file_uploader("金利・不動産市況CSVを読み込む",type=["csv"],key="macro_csv")
+    macro=safe_csv_upload(macro_file)
+    if macro is not None:
+        if "date" not in macro.columns:
+            st.error("CSVに date 列が必要です。")
+        else:
+            macro["date"]=pd.to_datetime(macro["date"],errors="coerce")
+            for col in ["japan_10y_yield_pct","reit_index","property_price_index"]:
+                if col in macro.columns: macro[col]=pd.to_numeric(macro[col],errors="coerce")
+            macro=macro.dropna(subset=["date"]).sort_values("date").set_index("date")
+            chart_cols=[c for c in ["japan_10y_yield_pct","reit_index","property_price_index"] if c in macro.columns]
+            if chart_cols: st.line_chart(macro[chart_cols],use_container_width=True)
+            st.dataframe(macro,use_container_width=True)
+    st.divider()
+    st.subheader("J-REIT割安銘柄自動発掘システム")
+    st.caption("株価ベースの割安度・反発・リスクをスコア化。分配金利回りとNAV倍率はファンダメンタルCSV読込時のみ評価します。")
+    score=summary[["コード","銘柄名","ticker","現在値","平均値・最安値の中間値","1ヶ月騰落率(%)","3ヶ月騰落率(%)","最安値からの回復率(%)","年率換算ボラティリティ(%)","最大ドローダウン(%)"]].copy()
+    score["割安度スコア"]=percentile_score(score["平均値・最安値の中間値"] / score["現在値"],True)
+    score["反発モメンタムスコア"]=percentile_score(score["1ヶ月騰落率(%)"],True)
+    score["回復余地スコア"]=percentile_score(score["最安値からの回復率(%)"],False)
+    score["低リスクスコア"]=percentile_score(score["年率換算ボラティリティ(%)"],False)
+    score["総合スコア"]=score[["割安度スコア","反発モメンタムスコア","回復余地スコア","低リスクスコア"]].mean(axis=1)
+    score["評価"]=pd.cut(score["総合スコア"],bins=[-1,20,40,60,80,101],labels=["要注意","低評価","中立","有望候補","高評価"])
+    if fundamental_view is not None:
+        score=score.merge(fundamental_view[["コード","予想分配金利回り(%)","NAV倍率"]],on="コード",how="left")
+        score["分配金スコア"]=percentile_score(score["予想分配金利回り(%)"],True)
+        score["NAV割安スコア"]=percentile_score(1/score["NAV倍率"],True)
+        score["総合スコア"]=score[["割安度スコア","反発モメンタムスコア","回復余地スコア","低リスクスコア","分配金スコア","NAV割安スコア"]].mean(axis=1)
+        score["評価"]=pd.cut(score["総合スコア"],bins=[-1,20,40,60,80,101],labels=["要注意","低評価","中立","有望候補","高評価"])
+    score=score.sort_values("総合スコア",ascending=False)
+    score_cols=[c for c in ["コード","銘柄名","現在値","総合スコア","評価","割安度スコア","反発モメンタムスコア","回復余地スコア","低リスクスコア","予想分配金利回り(%)","NAV倍率"] if c in score.columns]
+    score_fmt={c:"{:.1f}" for c in score_cols if "スコア" in c or c=="予想分配金利回り(%)"}
+    if "NAV倍率" in score_cols: score_fmt["NAV倍率"]="{:.2f}倍"
+    st.dataframe(whole_number_prices(score[score_cols],PRICE_COLUMNS).style.format(score_fmt,na_rep="—"),use_container_width=True,hide_index=True)
+    st.download_button("割安銘柄スコアCSV",score[score_cols].to_csv(index=False).encode("utf-8-sig"),"reit_undervalued_score.csv","text/csv")
+    st.caption("総合スコアは選択銘柄内の相対評価であり、投資推奨・将来収益の予測ではありません。")
 
 with st.expander("取得できなかった銘柄・データの注意", expanded=bool(errors)):
     if errors:
