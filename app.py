@@ -129,8 +129,8 @@ if summary.empty:
 a,b,c,d = st.columns(4)
 a.metric("分析可能銘柄", f"{len(summary)} / {len(selected)}")
 b.metric("最新データ日", summary["最終データ日"].max())
-c.metric("期間騰落率中央値", f"{summary['期間騰落率(%)'].median():+.2f}%")
-d.metric("最高値からの下落率中央値", f"{summary['最高値からの下落率(%)'].median():+.2f}%")
+c.metric("期間騰落率中央値", f"{summary['期間騰落率(%)'].median():+.0f}%")
+d.metric("最高値からの下落率中央値", f"{summary['最高値からの下落率(%)'].median():+.0f}%")
 with st.expander("価格統計の計算ルール"):
     st.write("最高値＝期間中の日次高値の最大値。平均値＝日次終値の算術平均。最安値＝日次安値の最小値。中間値＝(平均値＋最安値)÷2。分配金を含まない投資口価格ベースです。")
 
@@ -138,8 +138,8 @@ tab1,tab2,tab3 = st.tabs(["市場全体","銘柄ランキング","個別銘柄�
 with tab1:
     st.subheader("銘柄別・期間騰落率")
     chart_data = summary.sort_values("期間騰落率(%)", ascending=False).set_index("銘柄名")[["期間騰落率(%)"]]
-    st.bar_chart(chart_data, use_container_width=True)
-    st.dataframe(summary.drop(columns=["ticker"]).describe(include="all").T, use_container_width=True)
+    st.bar_chart(chart_data.round(0), use_container_width=True)
+    st.dataframe(summary.drop(columns=["ticker"]).describe(include="all").T.style.format("{:,.0f}"), use_container_width=True)
 
     st.divider()
     st.subheader("平均値・最安値の中間値を下回る銘柄")
@@ -153,7 +153,7 @@ with tab1:
         st.dataframe(
             below_mid[mid_cols].style.format({
                 c: "{:,.0f}" for c in ["現在値", "平均値", "最安値", "平均値・最安値の中間値", "最安値からの差額(円)"]
-            }).format({"最安値からの乖離(%)": "{:.2f}%"}),
+            }).format({"最安値からの乖離(%)": "{:.0f}%"}),
             use_container_width=True, hide_index=True
         )
         st.download_button(
@@ -178,7 +178,7 @@ with tab2:
     ascending = st.checkbox("昇順（小さい順）", value=False)
     ranked = summary.sort_values(sort_col, ascending=ascending)
     columns = ["コード","銘柄名","現在値","最高値","平均値","最安値","平均値・最安値の中間値","期間騰落率(%)","最高値からの下落率(%)","最安値からの差額(円)","最安値からの乖離(%)","データ日数","最終データ日"]
-    st.dataframe(ranked[columns].style.format({c:"{:,.0f}" for c in ["現在値","最高値","平均値","最安値","平均値・最安値の中間値"]}), use_container_width=True, hide_index=True)
+    st.dataframe(ranked[columns].style.format({c:"{:,.0f}" for c in ["現在値","最高値","平均値","最安値","平均値・最安値の中間値","最安値からの差額(円)","データ日数"]}).format({c:"{:.0f}%" for c in ["期間騰落率(%)","最高値からの下落率(%)","最安値からの乖離(%)"]}), use_container_width=True, hide_index=True)
     st.download_button("ランキングCSVを保存", ranked[columns].to_csv(index=False).encode("utf-8-sig"), "japan_reit_ranking.csv", "text/csv")
 with tab3:
     ticker = st.selectbox("銘柄", summary.ticker.tolist(), format_func=lambda x: f"{summary.loc[summary.ticker==x,'コード'].iloc[0]}｜{summary.loc[summary.ticker==x,'銘柄名'].iloc[0]}")
@@ -190,8 +190,8 @@ with tab3:
     x3.metric("最安値", f"{row['最安値']:,.0f}円")
     x4.metric("平均値・最安値の中間値", f"{row['平均値・最安値の中間値']:,.0f}円")
     st.caption(f"最高値日：{row['最高値日']}｜最安値日：{row['最安値日']}")
-    st.line_chart(df[["High","Low","Close"]])
-    st.dataframe(row.drop(labels=["ticker"]).to_frame("値"), use_container_width=True)
+    st.line_chart(df[["High","Low","Close"]].round(0))
+    st.dataframe(row.drop(labels=["ticker"]).to_frame("値").style.format("{:,.0f}"), use_container_width=True)
 
 with st.expander("取得できなかった銘柄・データの注意", expanded=bool(errors)):
     if errors:
