@@ -392,7 +392,20 @@ with tab7:
         b2.metric("プラスリターン率",f"{win:.1f}%")
         b3.metric("平均騰落率",f"{bt['騰落率(%)'].mean():+.2f}%")
         bt_display = whole_number_prices(bt, ["購入価格","検証後価格"])
-        st.dataframe(bt_display.sort_values("購入日",ascending=False).style.format({"騰落率(%)":"{:.2f}%"}, na_rep="—"),use_container_width=True,hide_index=True)
+        # Streamlit CloudでStylerとnullable Int64の組合せによる描画例外を避ける
+        for col in ["購入価格", "検証後価格"]:
+            bt_display[col] = pd.to_numeric(bt_display[col], errors="coerce").fillna(0).astype("int64")
+        bt_display["騰落率(%)"] = pd.to_numeric(bt_display["騰落率(%)"], errors="coerce").round(2)
+        st.dataframe(
+            bt_display.sort_values("購入日", ascending=False),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "購入価格": st.column_config.NumberColumn("購入価格", format="%d円"),
+                "検証後価格": st.column_config.NumberColumn("検証後価格", format="%d円"),
+                "騰落率(%)": st.column_config.NumberColumn("騰落率(%)", format="%.2f%%"),
+            },
+        )
         st.download_button("バックテストCSV",bt.to_csv(index=False).encode("utf-8-sig"),"reit_backtest.csv","text/csv")
     else:
         st.warning("バックテスト可能なシグナルがありません。分析期間を長くして価格データを取得してください。")
