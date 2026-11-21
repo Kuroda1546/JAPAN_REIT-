@@ -4,7 +4,6 @@ from pathlib import Path
 import io
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import streamlit as st
 import yfinance as yf
 
@@ -136,9 +135,8 @@ with st.expander("価格統計の計算ルール"):
 tab1,tab2,tab3 = st.tabs(["市場全体","銘柄ランキング","個別銘柄分析"])
 with tab1:
     st.subheader("銘柄別・期間騰落率")
-    chart = px.bar(summary.sort_values("期間騰落率(%)", ascending=False), x="銘柄名", y="期間騰落率(%)")
-    chart.update_layout(height=500, xaxis_tickangle=-65)
-    st.plotly_chart(chart, use_container_width=True)
+    chart_data = summary.sort_values("期間騰落率(%)", ascending=False).set_index("銘柄名")[["期間騰落率(%)"]]
+    st.bar_chart(chart_data, use_container_width=True)
     st.dataframe(summary.drop(columns=["ticker"]).describe(include="all").T, use_container_width=True)
 with tab2:
     sort_col = st.selectbox("ランキング基準", ["平均値・最安値の中間値","現在値","最高値","平均値","最安値","期間騰落率(%)","最高値からの下落率(%)","年率換算ボラティリティ(%)"])
