@@ -75,7 +75,7 @@ def analyze(prices, master):
             "最高値日": df.High.idxmax().strftime("%Y-%m-%d"),
             "平均値": avg, "最安値": low,
             "最安値日": df.Low.idxmin().strftime("%Y-%m-%d"),
-            "平均値・最安値の中間値": (avg + low) / 2,
+            "平均値・最安値の中間値": round(((avg + low) / 2) / 100) * 100,
             "最安値からの差額(円)": current - low,
             "最安値からの乖離(%)": (current / low - 1) * 100 if low else np.nan,
             "期間騰落率(%)": (current / first - 1) * 100 if first else np.nan,
@@ -156,7 +156,7 @@ with tab1:
     st.subheader("平均値・最安値の中間値を下回る銘柄")
     below_mid = summary[summary["現在値"] < summary["平均値・最安値の中間値"]].copy()
     below_mid = below_mid.sort_values("最安値からの乖離(%)", ascending=True)
-    st.caption("判定条件：現在値（直近終値）＜（期間平均値＋期間最安値）÷2。該当銘柄を中間値からの価格差が小さい順に表示します。")
+    st.caption("判定条件：現在値（直近終値）＜100円単位に四捨五入した中間値。中間値＝（期間平均値＋期間最安値）÷2。")
     mid_cols = ["コード", "銘柄名", "現在値", "平均値", "最安値", "平均値・最安値の中間値", "最安値からの差額(円)", "最安値からの乖離(%)"]
     if below_mid.empty:
         st.info("現在、条件に該当する銘柄はありません。")
