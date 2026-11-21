@@ -170,7 +170,7 @@ with tab1:
     st.dataframe(
         nearest_low[low_cols].style.format({
             c: "{:,.0f}" for c in ["現在値", "最安値", "最安値からの差額(円)"]
-        }).format({"最安値からの乖離(%)": "{:.2f}%"}),
+        }).format({"最安値からの乖離(%)": "{:.0f}%"}),
         use_container_width=True, hide_index=True
     )
 with tab2:
