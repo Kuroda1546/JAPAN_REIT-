@@ -66,6 +66,8 @@ def analyze(prices, master):
             "平均値": avg, "最安値": low,
             "最安値日": df.Low.idxmin().strftime("%Y-%m-%d"),
             "平均値・最安値の中間値": (avg + low) / 2,
+            "最安値からの差額(円)": current - low,
+            "最安値からの乖離(%)": (current / low - 1) * 100 if low else np.nan,
             "期間騰落率(%)": (current / first - 1) * 100 if first else np.nan,
             "最高値からの下落率(%)": (current / high - 1) * 100 if high else np.nan,
             "現在値と平均値の乖離(%)": (current / avg - 1) * 100 if avg else np.nan,
@@ -138,11 +140,44 @@ with tab1:
     chart_data = summary.sort_values("期間騰落率(%)", ascending=False).set_index("銘柄名")[["期間騰落率(%)"]]
     st.bar_chart(chart_data, use_container_width=True)
     st.dataframe(summary.drop(columns=["ticker"]).describe(include="all").T, use_container_width=True)
+
+    st.divider()
+    st.subheader("平均値・最安値の中間値を下回る銘柄")
+    below_mid = summary[summary["現在値"] < summary["平均値・最安値の中間値"]].copy()
+    below_mid = below_mid.sort_values("最安値からの乖離(%)", ascending=True)
+    st.caption("判定条件：現在値（直近終値）＜（期間平均値＋期間最安値）÷2。該当銘柄を中間値からの価格差が小さい順に表示します。")
+    mid_cols = ["コード", "銘柄名", "現在値", "平均値", "最安値", "平均値・最安値の中間値", "最安値からの差額(円)", "最安値からの乖離(%)"]
+    if below_mid.empty:
+        st.info("現在、条件に該当する銘柄はありません。")
+    else:
+        st.dataframe(
+            below_mid[mid_cols].style.format({
+                c: "{:,.0f}" for c in ["現在値", "平均値", "最安値", "平均値・最安値の中間値", "最安値からの差額(円)"]
+            }).format({"最安値からの乖離(%)": "{:.2f}%"}),
+            use_container_width=True, hide_index=True
+        )
+        st.download_button(
+            "中間値を下回る銘柄CSVを保存",
+            below_mid[mid_cols].to_csv(index=False).encode("utf-8-sig"),
+            "japan_reit_below_midpoint.csv", "text/csv"
+        )
+
+    st.divider()
+    st.subheader("最安値に近い銘柄 TOP 5")
+    nearest_low = summary.sort_values("最安値からの乖離(%)", ascending=True).head(5)
+    st.caption("判定条件：（現在値－期間最安値）÷期間最安値。最安値からの乖離率が小さい順に5銘柄を表示します。")
+    low_cols = ["コード", "銘柄名", "現在値", "最安値", "最安値からの差額(円)", "最安値からの乖離(%)", "最安値日"]
+    st.dataframe(
+        nearest_low[low_cols].style.format({
+            c: "{:,.0f}" for c in ["現在値", "最安値", "最安値からの差額(円)"]
+        }).format({"最安値からの乖離(%)": "{:.2f}%"}),
+        use_container_width=True, hide_index=True
+    )
 with tab2:
     sort_col = st.selectbox("ランキング基準", ["平均値・最安値の中間値","現在値","最高値","平均値","最安値","期間騰落率(%)","最高値からの下落率(%)","年率換算ボラティリティ(%)"])
     ascending = st.checkbox("昇順（小さい順）", value=False)
     ranked = summary.sort_values(sort_col, ascending=ascending)
-    columns = ["コード","銘柄名","現在値","最高値","平均値","最安値","平均値・最安値の中間値","期間騰落率(%)","最高値からの下落率(%)","データ日数","最終データ日"]
+    columns = ["コード","銘柄名","現在値","最高値","平均値","最安値","平均値・最安値の中間値","期間騰落率(%)","最高値からの下落率(%)","最安値からの差額(円)","最安値からの乖離(%)","データ日数","最終データ日"]
     st.dataframe(ranked[columns].style.format({c:"{:,.0f}" for c in ["現在値","最高値","平均値","最安値","平均値・最安値の中間値"]}), use_container_width=True, hide_index=True)
     st.download_button("ランキングCSVを保存", ranked[columns].to_csv(index=False).encode("utf-8-sig"), "japan_reit_ranking.csv", "text/csv")
 with tab3:
