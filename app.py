@@ -157,6 +157,43 @@ with tab1:
     st.dataframe(describe_table.style.format(precision=0, thousands=",", na_rep="—"), use_container_width=True)
 
     st.divider()
+    st.subheader("直近1ヶ月間に中間値を下回った銘柄")
+    recent_rows = []
+    for ticker, price_df in prices.items():
+        if ticker not in set(summary["ticker"]):
+            continue
+        summary_row = summary.loc[summary["ticker"] == ticker].iloc[0]
+        latest_date = price_df.index.max()
+        one_month_ago = latest_date - pd.DateOffset(months=1)
+        recent_df = price_df.loc[price_df.index > one_month_ago]
+        if recent_df.empty:
+            continue
+        midpoint = float(summary_row["平均値・最安値の中間値"])
+        below_days = recent_df[recent_df["Close"] < midpoint]
+        if not below_days.empty:
+            min_close_date = below_days["Close"].idxmin()
+            recent_rows.append({
+                "コード": summary_row["コード"],
+                "銘柄名": summary_row["銘柄名"],
+                "現在値": float(price_df["Close"].iloc[-1]),
+                "平均値・最安値の中間値": midpoint,
+                "直近1ヶ月の最安終値": float(recent_df["Close"].min()),
+                "中間値を下回った日数": len(below_days),
+                "中間値を下回った最終日": below_days.index.max().strftime("%Y-%m-%d"),
+                "直近1ヶ月の最安終値日": min_close_date.strftime("%Y-%m-%d"),
+                "ticker": ticker
+            })
+    recent_cols = ["コード", "銘柄名", "現在値", "平均値・最安値の中間値", "直近1ヶ月の最安終値", "中間値を下回った日数", "中間値を下回った最終日", "直近1ヶ月の最安終値日"]
+    if recent_rows:
+        recent_screen = pd.DataFrame(recent_rows).sort_values(["中間値を下回った日数", "直近1ヶ月の最安終値"], ascending=[False, True])
+        st.caption("判定条件：選択中の分析期間で算出した中間値（期間平均終値＋期間最安値）÷2を、直近1ヶ月のいずれかの営業日の終値が下回った銘柄。最新取得日を基準に過去1ヶ月を判定します。")
+        recent_display = whole_number_prices(recent_screen[recent_cols], PRICE_COLUMNS)
+        st.dataframe(recent_display.style.format(precision=0, thousands=",", na_rep="—"), use_container_width=True, hide_index=True)
+        st.download_button("直近1ヶ月・中間値割れ銘柄CSVを保存", recent_screen[recent_cols].to_csv(index=False).encode("utf-8-sig"), "japan_reit_recent_month_below_midpoint.csv", "text/csv")
+    else:
+        st.info("直近1ヶ月間に中間値を下回った銘柄はありません（または該当期間のデータがありません）。")
+
+    st.divider()
     st.subheader("平均値・最安値の中間値を下回る銘柄")
     below_mid = summary[summary["現在値"] < summary["平均値・最安値の中間値"]].copy()
     below_mid = below_mid.sort_values("最安値からの乖離(%)", ascending=True)
