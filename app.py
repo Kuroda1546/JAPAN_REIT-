@@ -276,10 +276,10 @@ with tab3:
     df = prices[ticker]
     row = summary.loc[summary.ticker==ticker].iloc[0]
     x1,x2,x3,x4 = st.columns(4)
-    x1.metric("最高値", f"{row['最高値']:,.0f}円")
-    x2.metric("平均値", f"{row['平均値']:,.0f}円")
-    x3.metric("最安値", f"{row['最安値']:,.0f}円")
-    x4.metric("平均値・最安値の中間値", f"{row['平均値・最安値の中間値']:,.0f}円")
+    x1.metric("最高値", f"{round(row['最高値'] / 100) * 100:,.0f}円")
+    x2.metric("平均値", f"{round(row['平均値'] / 100) * 100:,.0f}円")
+    x3.metric("最安値", f"{round(row['最安値'] / 100) * 100:,.0f}円")
+    x4.metric("平均値・最安値の中間値", f"{round(row['平均値・最安値の中間値'] / 100) * 100:,.0f}円")
     st.caption(f"最高値日：{row['最高値日']}｜最安値日：{row['最安値日']}")
     chart_prices = whole_number_prices(df[["High","Low","Close"]], PRICE_COLUMNS)
     st.line_chart(chart_prices)
@@ -391,7 +391,8 @@ with tab7:
         b1.metric("検証シグナル数",f"{len(bt):,}")
         b2.metric("プラスリターン率",f"{win:.1f}%")
         b3.metric("平均騰落率",f"{bt['騰落率(%)'].mean():+.2f}%")
-        bt_display = whole_number_prices(bt, ["購入価格","検証後価格"])\n        st.dataframe(bt_display.sort_values("購入日",ascending=False).style.format({"騰落率(%)":"{:.2f}%"}, na_rep="—"),use_container_width=True,hide_index=True)
+        bt_display = whole_number_prices(bt, ["購入価格","検証後価格"])
+        st.dataframe(bt_display.sort_values("購入日",ascending=False).style.format({"騰落率(%)":"{:.2f}%"}, na_rep="—"),use_container_width=True,hide_index=True)
         st.download_button("バックテストCSV",bt.to_csv(index=False).encode("utf-8-sig"),"reit_backtest.csv","text/csv")
     else:
         st.warning("バックテスト可能なシグナルがありません。分析期間を長くして価格データを取得してください。")
