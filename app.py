@@ -200,8 +200,10 @@ with tab3:
     st.caption(f"最高値日：{row['最高値日']}｜最安値日：{row['最安値日']}")
     chart_prices = whole_number_prices(df[["High","Low","Close"]], PRICE_COLUMNS)
     st.line_chart(chart_prices)
-    detail = row.drop(labels=["ticker"]).to_frame("値").T
-    detail = whole_number_prices(detail, PRICE_COLUMNS).T
+    detail = row.drop(labels=["ticker"]).to_frame("値")
+    for label in PRICE_COLUMNS:
+        if label in detail.index and pd.notna(detail.loc[label, "値"]):
+            detail.loc[label, "値"] = f"{float(detail.loc[label, '値']):,.0f}"
     st.dataframe(detail.style.format(precision=0, thousands=",", na_rep="—"), use_container_width=True)
 
 with st.expander("取得できなかった銘柄・データの注意", expanded=bool(errors)):
