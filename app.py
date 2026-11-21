@@ -191,6 +191,32 @@ with tab1:
     st.subheader("銘柄別・期間騰落率")
     chart_data = summary.sort_values("期間騰落率(%)", ascending=False).set_index("銘柄名")[["期間騰落率(%)"]]
     st.bar_chart(chart_data.round(0), use_container_width=True)
+
+    st.divider()
+    st.subheader("複数銘柄の株価推移比較（100起点）")
+    st.caption("選択した各銘柄の分析期間初日の終値を100として指数化。株価水準の違いを除いて値動きを比較します。分配金は含みません。")
+    compare_default = summary.sort_values("期間騰落率(%)", ascending=False)["ticker"].head(min(5, len(summary))).tolist()
+    compare_tickers = st.multiselect(
+        "比較する銘柄（最大10銘柄を推奨）",
+        summary["ticker"].tolist(),
+        default=compare_default,
+        key="reit_compare_tickers",
+        format_func=lambda x: f"{master.loc[master['ticker']==x, 'code'].iloc[0]}｜{master.loc[master['ticker']==x, 'name'].iloc[0]}"
+    )
+    if compare_tickers:
+        normalized = {}
+        for ticker in compare_tickers:
+            close = prices[ticker]["Close"].astype(float).dropna()
+            if not close.empty and close.iloc[0] != 0:
+                normalized[master.loc[master["ticker"]==ticker, "name"].iloc[0]] = close / close.iloc[0] * 100
+        if normalized:
+            normalized_df = pd.DataFrame(normalized).sort_index()
+            st.line_chart(normalized_df, use_container_width=True)
+            latest_norm = normalized_df.ffill().iloc[-1].sort_values(ascending=False)
+            st.caption("最新指数：" + " ／ ".join([f"{name} {value:.1f}" for name, value in latest_norm.items()]))
+    else:
+        st.info("比較する銘柄を選択してください。")
+
     describe_table = summary.drop(columns=["ticker"]).describe(include="all").T
     for price_label in PRICE_COLUMNS:
         if price_label in describe_table.index:
@@ -344,6 +370,19 @@ with tab5:
     risk_rank = summary.sort_values("年率換算ボラティリティ(%)", ascending=True)
     st.dataframe(risk_rank[risk_cols].style.format({c:"{:.2f}%" for c in risk_cols if "%" in c}, na_rep="—"), use_container_width=True, hide_index=True)
     st.caption("VaRは日次リターンの5%分位点を√252倍した参考値です。将来の最大損失を保証するものではありません。")
+    st.divider()
+    st.subheader("リスク・リターン分布")
+    st.caption("横軸は年率換算ボラティリティ、縦軸は過去12ヶ月騰落率。右側ほど値動きが大きく、上側ほど過去リターンが高い銘柄です。")
+    scatter_data = summary.dropna(subset=["年率換算ボラティリティ(%)", "12ヶ月騰落率(%)"]).copy()
+    if not scatter_data.empty:
+        st.scatter_chart(
+            scatter_data,
+            x="年率換算ボラティリティ(%)",
+            y="12ヶ月騰落率(%)",
+            color="銘柄名",
+            size="現在値",
+            use_container_width=True
+        )
 
 with tab6:
     st.subheader("仮想ポートフォリオ")
@@ -367,6 +406,37 @@ with tab6:
     p1.metric("投資元本", f"{portfolio['投資元本(円)'].sum():,.0f}円")
     p2.metric("評価額", f"{portfolio['評価額(円)'].sum():,.0f}円")
     p3.metric("含み損益", f"{portfolio['含み損益(円)'].sum():+,.0f}円")
+    st.divider()
+    st.subheader("ポートフォリオ構成比")
+    allocation = portfolio.loc[portfolio["評価額(円)"] > 0, ["銘柄名", "評価額(円)"]].copy()
+    if not allocation.empty:
+        allocation = allocation.groupby("銘柄名", as_index=False)["評価額(円)"].sum()
+        allocation["構成比(%)"] = allocation["評価額(円)"] / allocation["評価額(円)"].sum() * 100
+        donut_spec = {
+            "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+            "data": {"values": allocation.to_dict(orient="records")},
+            "mark": {"type": "arc", "innerRadius": 65, "outerRadius": 145},
+            "encoding": {
+                "theta": {"field": "評価額(円)", "type": "quantitative"},
+                "color": {"field": "銘柄名", "type": "nominal", "legend": {"title": "銘柄"}},
+                "tooltip": [
+                    {"field": "銘柄名", "type": "nominal", "title": "銘柄"},
+                    {"field": "評価額(円)", "type": "quantitative", "title": "評価額", "format": ",.0f"},
+                    {"field": "構成比(%)", "type": "quantitative", "title": "構成比", "format": ".1f"}
+                ]
+            },
+            "view": {"stroke": None},
+            "width": "container",
+            "height": 330
+        }
+        st.vega_lite_chart(donut_spec, use_container_width=True)
+        st.dataframe(
+            allocation.sort_values("構成比(%)", ascending=False).style.format({"評価額(円)": "{:,.0f}円", "構成比(%)": "{:.1f}%"}),
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("口数と平均取得価格を入力すると、評価額に基づく構成比を表示します。")
 
 with tab7:
     st.subheader("過去データによるバックテスト")
